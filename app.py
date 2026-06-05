@@ -5,7 +5,13 @@ import plotly.express as px
 from anthropic import Anthropic
 
 # Configuração da página para ocupar a tela de forma otimizada
-st.set_page_config(layout="wide", page_title="Clean'it - Anatomy Marathon", page_icon="🏆")
+st.set_page_config(layout="wide", page_title="Avaliador de Simulados", page_icon="🏆")
+
+# --- INICIALIZAÇÃO DO ESTADO GLOBAL (SESSION STATE) ---
+if "ver_geral" not in st.session_state:
+    st.session_state.ver_geral = False
+if "dados_calculados" not in st.session_state:
+    st.session_state.dados_calculados = None
 
 # --- INJEÇÃO DE CSS CUSTOMIZADO (Tema Claro, Alto Contraste, Gamificado e Bordas Arredondadas) ---
 st.markdown("""
@@ -74,59 +80,93 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Title Banner
+# Banner de Título Atualizado conforme solicitado
 st.markdown("""
     <div class="marathon-header">
-        <h1>🏆 ANATOMY MARATHON DASHBOARD</h1>
-        <p>Módulo de Correção Inteligente & Analytics de Performance</p>
+        <h1>🏆 AVALIADOR DE SIMULADOS</h1>
+        <p>Monitoria Anatomia VI</p>
     </div>
 """, unsafe_allow_html=True)
 
-# Sidebar para chaves e upload
+# --- CONFIGURAÇÃO DA BARRA LATERAL ---
 with st.sidebar:
     st.subheader("⚙️ Configurações de Acesso")
-    api_key = st.text_input("Anthropic API Key", type="password")
+    
+    # 1. Verifica se a chave existe e está preenchida no st.secrets
+    if "ANTHROPIC_API_KEY" in st.secrets and st.secrets["ANTHROPIC_API_KEY"]:
+        api_key = st.secrets["ANTHROPIC_API_KEY"]
+        st.success("✅ API Key carregada do sistema!")
+    else:
+        # 2. Caso contrário, exibe o campo para digitação manual na interface
+        st.warning("⚠️ Chave não encontrada nos Secrets.")
+        api_key = st.text_input("Digite sua Anthropic API Key manualmente:", type="password")
+        
     uploaded_file = st.file_uploader("Carregar Planilha de Respostas (.xlsx)", type=["xlsx"])
+    
+    st.write("---")
+    
+    # Botão de alternância de visão (Geral vs Dashboard)
+    # Só faz sentido exibir se já houver dados processados na memória
+    if st.session_state.dados_calculados is not None:
+        texto_botao = "📊 Voltar para o Dashboard" if st.session_state.ver_geral else "👁️ Ver Geral"
+        if st.button(texto_botao, use_container_width=True):
+            st.session_state.ver_geral = not st.session_state.ver_geral
+            st.rerun()
 
+# --- LÓGICA PRINCIPAL DO APP ---
 if uploaded_file and api_key:
-    # 1. LER PLANILHA
+    # Ler a planilha do Excel (Google Planilhas exportado)
     df = pd.read_excel(uploaded_file)
     
-    # Exibe uma prévia dos dados para o usuário ter certeza que leu certo
-    st.write("📋 **Prévia dos dados carregados:**", df.head(4))
+    # Só exibe a prévia da planilha original se ainda não tiver processado os dados para manter o visual limpo
+    if st.session_state.dados_calculados is None:
+        st.write("📋 **Prévia dos dados carregados (Gabarito na linha 2 do Excel):**", df.head(4))
     
-    # Botão para disparar a API e não gastar crédito sem querer ao mudar inputs
+    # Botão para disparar o processo da API
     if st.button("🔥 Iniciar Correção Inteligente"):
-        
-        with st.spinner("A IA do Claude está avaliando as respostas conforme os critérios clínicos..."):
+        with st.spinner("A IA do Claude está avaliando as respostas com base nos critérios anatômicos detalhados..."):
             try:
-                # Converter o dataframe em string formatada para enviar no prompt
                 tabela_texto = df.to_string()
                 
-                # Inicializar cliente Anthropic
-                # Nota: Em 2026, usamos a SDK padrão recomendada da Anthropic
-                anthropic_client = Anthropic(api_key=api_key)
-                
-                prompt_sistema = """Você é um avaliador especialista em anatomia médica. Retorne estritamente um objeto JSON conforme as instruções do usuário, sem textos explicativos adicionais."""
+                prompt_sistema = """Você é um avaliador especialista em anatomy médica. Sua tarefa é corrigir as respostas dissertativas dos alunos comparando-as com o gabarito oficial. Você deve retornar estritamente um objeto JSON válido, sem qualquer texto explicativo antes ou depois."""
                 
                 prompt_usuario = f"""
-                Com base na linha 2 da tabela (GABARITO) avalie as respostas (linha 3 em diante) seguindo as regras de anatomia (A. vs V., omissão de troncos vasculares, contagem de relações anteriores e omissão de órgãos em ligamentos).
-                
-                Dados da planilha:
+                Com base na linha 2 da tabela (GABARITO) avalie as respostas (linha 3 em diante) e atribua notas de 0 a 1.0 para cada uma das 16 questões.
+
+                CRITÉRIOS RIGOROSOS DE CORREÇÃO:
+                1. Drenagem e Vascularização: Trocar abreviações de artéria para veia (ex: escrever "A." em vez de "V." ou vice-versa) zera a questão inteira. Omitir qualquer parte da cadeia de vascularização (ex: escrever "A. aorta > A. hepática comum", omitindo o "Tronco celíaco" que consta no gabarito) zera a questão inteira.
+                2. Ligamentos ou Partes: Ocultar o órgão do qual o ligamento faz parte NÃO gera prejuízo (ex: se o gabarito diz "Ligamento hepatoduodenal" e o aluno escreve apenas "Hepatoduodenal", pontue). No entanto, errar o nome da estrutura em si zera a questão.
+                3. Relações Anteriores (Estruturas múltiplas): 
+                   - A ordem em que o aluno escreve as estruturas NÃO importa (exceto nas cadeias de vascularização), desde que as peças e a quantidade exata correspondam ao gabarito.
+                   - Se o gabarito tem 2 órgãos: a resposta deve ter exatamente 2. Se tiver 1 ou 3, é ZERO (mesmo que os corretos estejam descritos). Se tiver 2, mas 1 estiver errado, a nota é 0.5.
+                   - Se o gabarito tem 3 órgãos: errar 1 de 3 dá nota 0.6. Errar 2 de 3 dá nota 0.3. Acertar os 3 dá nota 1.0.
+
+                REGRAS DE FLEXIBILIDADE, EPÔNIMOS E ORTOGRAFIA:
+                1. Ortografia: Não seja cruel com pequenos erros de digitação ou ortografia (ex: trocar "s" por "z", esquecer acentos). Desde que fique claro que o aluno sabe qual é a estrutura e não mude o sentido médico, NÃO penalize. Errar a estrutura inteira continua gerando zero.
+                2. Epônimos e Sinônimos Anatômicos: Aceite sinônimos e epônimos clássicos consolidados na literatura médica, desde que mantenham a especificidade da peça avaliada:
+                   - "Ampola hepatopancreática" pode ser aceito como "Ampola de Vater" ou "Ampola de Water".
+                   - "Processo papilar" pode ser aceito como "Processo caudado".
+                3. Subdivisões Estruturais: Se o gabarito exigir "Parte pilórica", aceite se o aluno detalhar e dividir em "(Antro e canal) pilóricos" ou "Antro pilórico e canal pilórico".
+
+                Dados extraídos da planilha:
                 {tabela_texto}
                 
-                Retorne estritamente no formato JSON:
+                RETORNO OBRIGATÓRIO:
+                Gere única e estritamente o JSON abaixo preenchido para todos os alunos encontrados a partir da linha 3:
                 {{
                   "correcoes": [
                     {{
-                      "nome": "Nome do Aluno",
-                      "notas_questoes": {{"Q1": 1.0, "Q2": 0.0, ... "Q16": 0.5}}
+                      "nome": "Nome Completo do Aluno",
+                      "notas_questoes": {{
+                        "Q1": 1.0, "Q2": 0.0, "Q3": 0.5, "Q4": 1.0, "Q5": 1.0, "Q6": 1.0, "Q7": 1.0, "Q8": 1.0,
+                        "Q9": 1.0, "Q10": 1.0, "Q11": 1.0, "Q12": 1.0, "Q13": 1.0, "Q14": 1.0, "Q15": 1.0, "Q16": 1.0
+                      }}
                     }}
                   ]
                 }}
                 """
                 
-                # Chamada da API Anthropic (Claude 3.5 Sonnet é ideal para estruturação de dados rigorosa)
+                anthropic_client = Anthropic(api_key=api_key)
                 response = anthropic_client.messages.create(
                     model="claude-3-5-sonnet-latest",
                     max_tokens=4000,
@@ -134,11 +174,10 @@ if uploaded_file and api_key:
                     messages=[{"role": "user", "content": prompt_usuario}]
                 )
                 
-                # Parse do JSON retornado
                 resultado_json = json.loads(response.content[0].text)
                 correcoes = resultado_json["correcoes"]
                 
-                # --- 2. PROCESSAMENTO DOS DADOS NO PYTHON (FRONTEND/LOCAL) ---
+                # --- ESTRUTURAÇÃO DOS DADOS NO LOCAL ---
                 dados_alunos = []
                 frequencia_questoes = {f"Q{i}": [] for i in range(1, 17)}
                 
@@ -146,7 +185,6 @@ if uploaded_file and api_key:
                     nome = item["nome"]
                     notas = item["notas_questoes"]
                     nota_final = sum(notas.values())
-                    
                     dados_alunos.append({"Nome": nome, "Nota": nota_final})
                     
                     for q, nota in notas.items():
@@ -154,80 +192,86 @@ if uploaded_file and api_key:
                             frequencia_questoes[q].append(nota)
                 
                 df_resultados = pd.DataFrame(dados_alunos)
-                
-                # Cálculo da Média Geral
                 media_geral = df_resultados["Nota"].mean()
                 
-                # Cálculo de índices de acerto por questão (considerando acerto pleno = 1.0 ou proporcional)
                 indices_acerto = {}
                 for q, lista_notas in frequencia_questoes.items():
-                    # Média de acerto da questão (1 = 100% de acerto na turma)
-                    indices_acerto[q] = sum(lista_notas) / len(lista_notas) if lista_notes else 0
+                    indices_acerto[q] = sum(lista_notas) / len(lista_notas) if lista_notas else 0
                 
-                # Ordenar ranking de questões
                 questoes_ordenadas = sorted(indices_acerto.items(), key=lambda x: x[1], reverse=True)
-                top_3_faceis = questoes_ordenadas[:3]
-                top_3_dificeis = questoes_ordenadas[-3:][::-1]
                 
-                # Ranking Alunos (Maiores Notas, desempate por Ordem Alfabética)
-                # O pandas faz isso de forma nativa e extremamente veloz
-                df_ranking = df_resultados.sort_values(by=["Nota", "Nome"], ascending=[False, True]).reset_index(drop=True)
-                
-                # --- 3. RENDERIZAÇÃO DO LAYOUT EM DUAS COLUNAS ---
-                col_esquerda, col_direita = st.columns([1.2, 1])
-                
-                with col_esquerda:
-                    st.markdown('<div class="custom-card"><h3>📊 Estatísticas Gerais</h3></div>', unsafe_allow_html=True)
-                    
-                    # Exibição de Média com destaque limpo e alto contraste
-                    st.metric(label="Média Aritmética da Turma", value=f"{media_geral:.2f} / 16.0")
-                    
-                    # Gráfico de Distribuição usando Plotly Express
-                    # Eixo X fixado de 0 a 16 conforme solicitado
-                    fig = px.histogram(
-                        df_resultados, 
-                        x="Nota", 
-                        nbins=17,
-                        range_x=[-0.5, 16.5],
-                        title="Distribuição Absoluta das Notas",
-                        labels={'Nota': 'Nota Final (Questões)', 'count': 'Frequência Absoluta'},
-                        color_discrete_sequence=['#0072FF']
-                    )
-                    fig.update_layout(
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        xaxis=dict(tickmode='linear', tick0=0, dtick=1)
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Ranking Top 3 Alunos
-                    st.markdown("### 🥇 Podium da Maratona (Top 3)")
-                    for idx, row in df_ranking.head(3).iterrows():
-                        st.markdown(f"""
-                            <div class="podium-card">
-                                <strong>{idx+1}º Lugar:</strong> {row['Nome']} — <span style="color:#0072FF; font-weight:bold;">{row['Nota']:.1f} pts</span>
-                            </div>
-                        """, unsafe_allow_html=True)
-                
-                with col_direita:
-                    st.markdown('<div class="custom-card"><h3>🔍 Análise de Itens (Questões)</h3></div>', unsafe_allow_html=True)
-                    
-                    st.write("### 📈 Maiores Índices de Acerto")
-                    st.write("As 3 questões que a turma demonstrou maior domínio:")
-                    for q, taxa in top_3_faceis:
-                        st.markdown(f"<span class='badge-success'>{q} ({taxa*100:.1f}% de aproveitamento)</span>", unsafe_allow_html=True)
-                        
-                    st.write("---")
-                    
-                    st.write("### 📉 Menores Índices de Acerto")
-                    st.write("As 3 questões críticas que merecem revisão em sala de aula:")
-                    for q, taxa in top_3_dificeis:
-                        st.markdown(f"<span class='badge-danger'>{q} ({taxa*100:.1f}% de aproveitamento)</span>", unsafe_allow_html=True)
-                
-                st.success("✨ Processamento concluído com sucesso!")
-                
+                # Guardar tudo no session_state para não perder ao clicar em botões
+                st.session_state.dados_calculados = {
+                    "df_resultados": df_resultados,
+                    "media_geral": media_geral,
+                    "top_3_faceis": questoes_ordenadas[:3],
+                    "top_3_dificeis": questoes_ordenadas[-3:][::-1],
+                    "df_ranking": df_resultados.sort_values(by=["Nota", "Nome"], ascending=[False, True]).reset_index(drop=True)
+                }
+                st.session_state.ver_geral = False  # Reseta para o dashboard por padrão ao re-corrigir
+                st.rerun()
+
             except Exception as e:
-                st.error(f"Erro ao processar ou na comunicação com a API: {e}")
+                st.error(f"Erro ao processar as notas ou se comunicar com a API do Claude: {e}")
+
+    # --- RENDERIZAÇÃO CONDICIONAL DA INTERFACE ---
+    if st.session_state.dados_calculados is not None:
+        dados = st.session_state.dados_calculados
+        
+        # VISÃO 1: VER GERAL (TABELA COMPLETA)
+        if st.session_state.ver_geral:
+            st.markdown('<div class="custom-card"><h3>📋 Tabela Geral de Notas e Pontuações</h3></div>', unsafe_allow_html=True)
+            
+            # Formatação simples para exibir na tabela de forma limpa, ordenada alfabeticamente por padrão
+            df_geral_exibicao = dados["df_resultados"].sort_values(by="Nome").reset_index(drop=True)
+            df_geral_exibicao["Nota"] = df_geral_exibicao["Nota"].map(lambda x: f"{x:.2f} / 16.0")
+            
+            st.dataframe(df_geral_exibicao, use_container_width=True, height=500)
+            
+        # VISÃO 2: DASHBOARD TRADICIONAL AVALIADO
+        else:
+            col_esquerda, col_direita = st.columns([1.2, 1])
+            
+            with col_esquerda:
+                st.markdown('<div class="custom-card"><h3>📊 Estatísticas do Simulado</h3></div>', unsafe_allow_html=True)
+                
+                st.metric(label="Média Aritmética da Turma", value=f"{dados['media_geral']:.2f} / 16.0")
+                
+                fig = px.histogram(
+                    dados["df_resultados"], 
+                    x="Nota", 
+                    nbins=17,
+                    range_x=[-0.5, 16.5],
+                    title="Distribuição Absoluta das Notas",
+                    labels={'Nota': 'Nota Final (Questões)', 'count': 'Frequência Absoluta'},
+                    color_discrete_sequence=['#0072FF']
+                )
+                fig.update_layout(
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    xaxis=dict(tickmode='linear', tick0=0, dtick=1)
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                st.markdown("### 🥇 Ranking da Turma (Top 3)")
+                for idx, row in dados["df_ranking"].head(3).iterrows():
+                    st.markdown(f"""
+                        <div class="podium-card">
+                            <strong>{idx+1}º Lugar:</strong> {row['Nome']} — <span style="color:#0072FF; font-weight:bold;">{row['Nota']:.2f} pts</span>
+                        </div>
+                    """, unsafe_allow_html=True)
+            
+            with col_direita:
+                st.markdown('<div class="custom-card"><h3>🔍 Análise de Questões</h3></div>', unsafe_allow_html=True)
+                
+                st.write("### 📈 As 3 Questões com Maior Índice de Acerto")
+                for q, taxa in dados["top_3_faceis"]:
+                    st.markdown(f"<span class='badge-success'>{q} ({taxa*100:.1f}% de aproveitamento)</span>", unsafe_allow_html=True)
+                    
+                st.write("---")
+                
+                st.write("### 📉 As 3 Questões com Menor Índice de Acerto")
+                for q, taxa in dados["top_3_dificeis"]:
+                    st.markdown(f"<span class='badge-danger'>{q} ({taxa*100:.1f}% de aproveitamento)</span>", unsafe_allow_html=True)
 else:
-    # Estado inicial / Instruções elegantes de uso
-    st.info("💡 Para começar, insira sua Anthropic API Key e faça o upload da planilha contendo o Gabarito (Linha 2) e Respostas dos Alunos (Linha 3 em diante) na barra lateral.")
+    st.info("💡 Pronto para começar! Certifique-se de que sua API Key está configurada nos Secrets do Streamlit ou na barra lateral e faça o upload da sua planilha .xlsx.")
