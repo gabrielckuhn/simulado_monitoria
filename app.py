@@ -228,8 +228,7 @@ if uploaded_file and api_key:
             df_geral_exibicao = dados["df_resultados"].sort_values(by="Nome").reset_index(drop=True)
             df_geral_exibicao["Nota"] = df_geral_exibicao["Nota"].map(lambda x: f"{x:.2f} / 16.0")
             
-            # height=None faz a tabela expandir e mostrar todas as linhas na tela de uma vez só
-            st.dataframe(df_geral_exibicao, use_container_width=True, height=None)
+            st.dataframe(df_geral_exibicao, use_container_width=True, height="auto")
             
         # VISÃO 2: DASHBOARD TRADICIONAL AVALIADO
         else:
