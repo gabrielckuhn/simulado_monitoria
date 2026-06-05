@@ -3,6 +3,7 @@ import pandas as pd
 import json
 import re
 import plotly.graph_objects as go
+import numpy as np
 from anthropic import Anthropic
 
 st.set_page_config(layout="wide", page_title="Simulados · Anatomia VI", page_icon="🫀")
@@ -21,7 +22,6 @@ if "dados_calculados" not in st.session_state:
 st.markdown("""
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
-<!-- SVG filter placeholder — preenchido pelo JS abaixo -->
 <svg xmlns="http://www.w3.org/2000/svg" width="0" height="0"
      style="position:absolute;overflow:hidden;pointer-events:none"
      color-interpolation-filters="sRGB">
@@ -179,7 +179,7 @@ st.markdown("""
 [data-testid="stMetricValue"] {
     font-family: 'Figtree', sans-serif !important;
     font-weight: 700 !important;
-    font-size: 2.1rem !important;
+    font-size: 1.6rem !important;
     color: #1a1c2e !important;
 }
 [data-testid="stMetricLabel"] {
@@ -438,16 +438,8 @@ st.markdown("""
 ::-webkit-scrollbar-thumb:hover { background:rgba(124,111,247,0.50); }
 </style>
 
-<!-- Orb3 extra injetado como div (::before e ::after já usados) -->
 <div class="orb3"></div>
 
-<!-- ════════════════════════════════════════════════════
-     LIQUID GLASS ENGINE
-     Porta fiel das funções do projeto liquid-glass-for-the-web
-     Gera displacement map por canvas e injeta no SVG filter.
-     O filtro é aplicado via backdrop-filter: url(#lg-filter)
-     nas classes .glass-card, .hero-header e .podium-item.
-     ════════════════════════════════════════════════════ -->
 <script>
 (function(){
   "use strict";
@@ -720,6 +712,11 @@ if uploaded_file and api_key:
 
                 df_resultados = pd.DataFrame(dados_alunos)
                 media_geral   = df_resultados["Nota"].mean()
+                
+                # Novos parâmetros estatísticos baseados na regra de 3 para escala 0-10
+                mediana_questoes = np.median(df_resultados["Nota"])
+                desvio_padrao_questoes = np.std(df_resultados["Nota"])
+                
                 indices_acerto = {
                     q: (sum(v)/len(v) if v else 0)
                     for q, v in frequencia_questoes.items()
@@ -729,6 +726,8 @@ if uploaded_file and api_key:
                 st.session_state.dados_calculados = {
                     "df_resultados": df_resultados,
                     "media_geral":   media_geral,
+                    "mediana_questoes": mediana_questoes,
+                    "desvio_padrao": desvio_padrao_questoes,
                     "top_3_faceis":  questoes_ordenadas[:3],
                     "top_3_dificeis":questoes_ordenadas[-3:][::-1],
                     "df_ranking":    df_resultados.sort_values(by=["Nota","Nome"], ascending=[False,True]).reset_index(drop=True),
@@ -760,7 +759,19 @@ if uploaded_file and api_key:
                 # Métrica + histograma
                 st.markdown('<div class="glass-card">', unsafe_allow_html=True)
                 st.markdown('<div class="section-label">📊 Estatísticas Gerais</div>', unsafe_allow_html=True)
-                st.metric(label="Média da Turma", value=f"{dados['media_geral']:.2f} / 16.0")
+                
+                # Conversão de escala para nota 0-10
+                nota_escala_10 = (dados['media_geral'] * 10) / 16
+                mediana_escala_10 = (dados['mediana_questoes'] * 10) / 16
+                desvio_escala_10 = (dados['desvio_padrao'] * 10) / 16
+                
+                texto_metrica = (
+                    f"{dados['media_geral']:.2f}/16 questões - Nota: {nota_escala_10:.2f}/10 - "
+                    f"Mediana: {dados['mediana_questoes']:.1f}/16 ({mediana_escala_10:.2f}/10) "
+                    f"[{desvio_escala_10:.2f} DP]"
+                )
+                
+                st.metric(label="Média da Turma", value=texto_metrica)
 
                 fig = go.Figure()
                 fig.add_trace(go.Histogram(
@@ -794,11 +805,11 @@ if uploaded_file and api_key:
                 # Ranking
                 st.markdown('<div class="glass-card">', unsafe_allow_html=True)
                 st.markdown('<div class="section-label">🥇 Top 3 da Turma</div>', unsafe_allow_html=True)
-                medals = ["🥇","🥈","🥉"]
+                medels = ["🥇","🥈","🥉"]
                 for idx, row in dados["df_ranking"].head(3).iterrows():
                     st.markdown(f"""
                     <div class="podium-item">
-                        <span class="rank-medal">{medals[idx]}</span>
+                        <span class="rank-medal">{medels[idx]}</span>
                         <span class="rank-name">{row['Nome']}</span>
                         <span class="rank-score">{row['Nota']:.2f} pts</span>
                     </div>""", unsafe_allow_html=True)
