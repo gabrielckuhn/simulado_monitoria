@@ -165,7 +165,7 @@ if uploaded_file and api_key:
                 
                 # CORREÇÃO DO MODELO: Mudança para identificador estável reconhecido globalmente pela API
                 response = anthropic_client.messages.create(
-                    model="claude-3-5-sonnet-20241022",
+                    model="claude-sonnet-4-6",
                     max_tokens=4000,
                     system=prompt_sistema,
                     messages=[{"role": "user", "content": prompt_usuario}]
