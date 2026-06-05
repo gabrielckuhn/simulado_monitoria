@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import numpy as np
 from anthropic import Anthropic
 
-st.set_page_config(layout="wide", page_title="Simulados · Anatomia VI", page_icon="🫀")
+st.set_page_config(layout="wide", page_title="Simulados · Anatomia VI", page_icon="📝")
 
 if "ver_geral" not in st.session_state:
     st.session_state.ver_geral = False
@@ -618,7 +618,7 @@ st.markdown("""
 st.markdown("""
 <div class="hero-header">
     <div class="specular"></div>
-    <h1>🫀 Avaliador de Simulados</h1>
+    <h1>📝 Avaliador de Simulados</h1>
     <p>Monitoria · Anatomia VI</p>
 </div>
 """, unsafe_allow_html=True)
