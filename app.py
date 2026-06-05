@@ -22,6 +22,7 @@ if "dados_calculados" not in st.session_state:
 st.markdown("""
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
+<!-- SVG filter placeholder — preenchido pelo JS abaixo -->
 <svg xmlns="http://www.w3.org/2000/svg" width="0" height="0"
      style="position:absolute;overflow:hidden;pointer-events:none"
      color-interpolation-filters="sRGB">
@@ -438,8 +439,16 @@ st.markdown("""
 ::-webkit-scrollbar-thumb:hover { background:rgba(124,111,247,0.50); }
 </style>
 
+<!-- Orb3 extra injetado como div (::before e ::after já usados) -->
 <div class="orb3"></div>
 
+<!-- ════════════════════════════════════════════════════
+     LIQUID GLASS ENGINE
+     Porta fiel das funções do projeto liquid-glass-for-the-web
+     Gera displacement map por canvas e injeta no SVG filter.
+     O filtro é aplicado via backdrop-filter: url(#lg-filter)
+     nas classes .glass-card, .hero-header e .podium-item.
+     ════════════════════════════════════════════════════ -->
 <script>
 (function(){
   "use strict";
@@ -653,7 +662,7 @@ if uploaded_file and api_key:
                 Analise a tabela fornecida abaixo. Identifique a linha correspondente ao GABARITO oficial (geralmente marcada explicitamente ou contendo as respostas ideais) e utilize-a para avaliar todas as respostas dos alunos posicionadas nas linhas inferiores. Atribua notas de 0 a 1.0 para cada uma das 16 questões de cada aluno.
 
                 CRITÉRIOS RIGOROSOS DE CORREÇÃO:
-                1. Drenagem e Vascularização: Trocar abreviações de artéria para veia (ex: escrever "A." em vez de "V." ou vice-versa) zera a questão inteira. Omitir qualquer parte da cadeia de vascularização (ex: escrever "A. aorta > A. hepática comum", omitindo o "Tronco celíaco" que consta no gabarito) zera a questão inteira.
+                1. Drenagem e Vascularização: Trocar abreviações de artéria para veia (ex: escrever "A." in vez de "V." ou vice-versa) zera a questão inteira. Omitir qualquer parte da cadeia de vascularização (ex: escrever "A. aorta > A. hepática comum", omitindo o "Tronco celíaco" que consta no gabarito) zera a questão inteira.
                 2. Ligamentos ou Partes: Ocultar o órgão do qual o ligamento faz parte NÃO gera prejuízo (ex: se o gabarito diz "Ligamento hepatoduodenal" e o aluno escreve apenas "Hepatoduodenal", pontue). No entanto, errar o nome da estrutura em si zera a questão.
                 3. Relações Anteriores (Estruturas múltiplas):
                    - A ordem em que o aluno escreve as estruturas NÃO importa (exceto nas cadeias de vascularização), desde que as peças e a quantidade exata correspondam ao gabarito.
@@ -713,7 +722,6 @@ if uploaded_file and api_key:
                 df_resultados = pd.DataFrame(dados_alunos)
                 media_geral   = df_resultados["Nota"].mean()
                 
-                # Novos parâmetros estatísticos baseados na regra de 3 para escala 0-10
                 mediana_questoes = np.median(df_resultados["Nota"])
                 desvio_padrao_questoes = np.std(df_resultados["Nota"])
                 
@@ -760,18 +768,27 @@ if uploaded_file and api_key:
                 st.markdown('<div class="glass-card">', unsafe_allow_html=True)
                 st.markdown('<div class="section-label">📊 Estatísticas Gerais</div>', unsafe_allow_html=True)
                 
-                # Conversão de escala para nota 0-10
+                # Conversão e formatação compacta para evitar quebra de contêiner
                 nota_escala_10 = (dados['media_geral'] * 10) / 16
                 mediana_escala_10 = (dados['mediana_questoes'] * 10) / 16
                 desvio_escala_10 = (dados['desvio_padrao'] * 10) / 16
                 
+                # Exibição: Média sem decimais nos acertos, o resto reduzido em cinza e entre parênteses
                 texto_metrica = (
-                    f"{dados['media_geral']:.2f}/16 questões - Nota: {nota_escala_10:.2f}/10 - "
-                    f"Mediana: {dados['mediana_questoes']:.1f}/16 ({mediana_escala_10:.2f}/10) "
-                    f"[{desvio_escala_10:.2f} DP]"
+                    f"{dados['media_geral']:.0f}/16 acertos "
+                    f"<span style='color: #707280; font-size: 0.52em; font-weight: 500; letter-spacing: 0px; text-transform: none;'>"
+                    f"(Nota: {nota_escala_10:.1f} · Mediana: {dados['mediana_questoes']:.1f}/16 [{desvio_escala_10:.1f} DP])"
+                    f"</span>"
                 )
                 
-                st.metric(label="Média da Turma", value=texto_metrica)
+                st.markdown(f"""
+                <div data-testid="stMetric">
+                    <label data-testid="stMetricLabel">Média da Turma</label>
+                    <div data-testid="stMetricValue" style="font-size: 1.45rem; line-height: 1.2;">
+                        {texto_metrica}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
                 fig = go.Figure()
                 fig.add_trace(go.Histogram(
