@@ -111,11 +111,8 @@ with st.sidebar:
 
 # --- LÓGICA PRINCIPAL DO APP ---
 if uploaded_file and api_key:
-    # Lendo o arquivo Excel limpando linhas completamente vazias iniciais se houverem
     df = pd.read_excel(uploaded_file)
     
-    # Se a primeira linha contiver títulos gerais mesclados ou strings soltas sem as questões, 
-    # garantimos uma exibição limpa convertendo tudo para string de forma estruturada.
     if st.session_state.dados_calculados is None:
         st.write("📋 **Prévia da Planilha (Verifique as linhas iniciais):**")
         st.dataframe(df.head(10), use_container_width=True)
@@ -123,7 +120,6 @@ if uploaded_file and api_key:
     if st.button("🔥 Iniciar Correção Inteligente"):
         with st.spinner("O Claude está analisando os dados da planilha e aplicando os critérios anatômicos..."):
             try:
-                # Convertemos todo o DataFrame para string eliminando omissões visuais
                 tabela_texto = df.to_string()
                 
                 prompt_sistema = """Você é um avaliador especialista em anatomia médica. Sua tarefa é analisar minuciosamente o texto da planilha enviada, identificar a linha que contém o GABARITO oficial (com as respostas padrão do professor) e corrigir todas as linhas subsequentes correspondentes às respostas enviadas pelos alunos. Você deve retornar estritamente um objeto JSON válido, sem qualquer texto explicativo."""
@@ -166,8 +162,10 @@ if uploaded_file and api_key:
                 """
                 
                 anthropic_client = Anthropic(api_key=api_key)
+                
+                # CORREÇÃO DO MODELO: Mudança para identificador estável reconhecido globalmente pela API
                 response = anthropic_client.messages.create(
-                    model="claude-3-5-sonnet-latest",
+                    model="claude-3-5-sonnet-20241022",
                     max_tokens=4000,
                     system=prompt_sistema,
                     messages=[{"role": "user", "content": prompt_usuario}]
@@ -212,7 +210,7 @@ if uploaded_file and api_key:
             except Exception as e:
                 st.error(f"Erro no processamento ou mapeamento dos dados da API: {e}")
 
-    # --- RENDERIZAÇÃO DA INTERFACE ---
+# --- RENDERIZAÇÃO DA INTERFACE ---
     if st.session_state.dados_calculados is not None:
         dados = st.session_state.dados_calculados
         
@@ -223,7 +221,7 @@ if uploaded_file and api_key:
             df_geral_exibicao = dados["df_resultados"].sort_values(by="Nome").reset_index(drop=True)
             df_geral_exibicao["Nota"] = df_geral_exibicao["Nota"].map(lambda x: f"{x:.2f} / 16.0")
             
-            # Mudança crucial: height=None faz a tabela expandir e mostrar todas as linhas na tela de uma vez só
+            # height=None faz a tabela expandir e mostrar todas as linhas na tela de uma vez só
             st.dataframe(df_geral_exibicao, use_container_width=True, height=None)
             
         # VISÃO 2: DASHBOARD TRADICIONAL AVALIADO
