@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import json
+import re
 import plotly.express as px
 from anthropic import Anthropic
 
@@ -122,7 +123,7 @@ if uploaded_file and api_key:
             try:
                 tabela_texto = df.to_string()
                 
-                prompt_sistema = """Você é um avaliador especialista em anatomia médica. Sua tarefa é analisar minuciosamente o texto da planilha enviada, identificar a linha que contém o GABARITO oficial (com as respostas padrão do professor) e corrigir todas as linhas subsequentes correspondentes às respostas enviadas pelos alunos. Você deve retornar estritamente um objeto JSON válido, sem qualquer texto explicativo."""
+                prompt_sistema = """Você é um avaliador especialista em anatomia médica. Sua tarefa é analisar minuciosamente o texto da planilha enviada, identificar a linha que contém o GABARITO oficial (com as respostas padrão do professor) e corrigir todas as linhas subsequentes correspondentes às respostas enviadas pelos alunos. Você deve retornar estritamente um objeto JSON válido, sem qualquer texto explicativo, sem blocos de markdown, sem crase, sem prefixo. Apenas o JSON puro."""
                 
                 prompt_usuario = f"""
                 Analise a tabela fornecida abaixo. Identifique a linha correspondente ao GABARITO oficial (geralmente marcada explicitamente ou contendo as respostas ideais) e utilize-a para avaliar todas as respostas dos alunos posicionadas nas linhas inferiores. Atribua notas de 0 a 1.0 para cada uma das 16 questões de cada aluno.
@@ -147,7 +148,7 @@ if uploaded_file and api_key:
                 Dados extraídos da planilha:
                 {tabela_texto}
                 
-                RETORNO OBRIGATÓRIO (Gere única e estritamente o JSON estruturado abaixo contendo a avaliação de cada um dos alunos):
+                RETORNO OBRIGATÓRIO: Retorne APENAS o JSON abaixo, sem nenhum texto antes ou depois, sem blocos de markdown (sem ```json), sem explicações. Só o JSON puro:
                 {{
                   "correcoes": [
                     {{
@@ -163,15 +164,21 @@ if uploaded_file and api_key:
                 
                 anthropic_client = Anthropic(api_key=api_key)
                 
-                # CORREÇÃO DO MODELO: Mudança para identificador estável reconhecido globalmente pela API
                 response = anthropic_client.messages.create(
                     model="claude-sonnet-4-6",
-                    max_tokens=4000,
+                    max_tokens=8000,
                     system=prompt_sistema,
                     messages=[{"role": "user", "content": prompt_usuario}]
                 )
                 
-                resultado_json = json.loads(response.content[0].text)
+                raw_text = response.content[0].text.strip()
+                
+                # Extrai o JSON mesmo que venha com texto extra ou blocos de markdown
+                json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+                if not json_match:
+                    raise ValueError(f"Nenhum JSON encontrado na resposta da API. Resposta recebida:\n{raw_text[:800]}")
+                
+                resultado_json = json.loads(json_match.group())
                 correcoes = resultado_json["correcoes"]
                 
                 # --- PROCESSAMENTO DOS DADOS RETORNADOS ---
