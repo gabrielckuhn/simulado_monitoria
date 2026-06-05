@@ -100,7 +100,18 @@ st.markdown("""
     position: relative; z-index: 1;
 }
 
-/* ── Sidebar ── */
+/* ── Sidebar — nunca colapsa ── */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"] {
+    display: none !important;
+}
+[data-testid="stSidebar"][aria-expanded="false"] {
+    display: flex !important;
+    visibility: visible !important;
+    margin-left: 0 !important;
+    transform: none !important;
+    min-width: 14rem !important;
+}
 [data-testid="stSidebar"] {
     background: rgba(255,255,255,0.52) !important;
     backdrop-filter: blur(32px) saturate(180%) !important;
