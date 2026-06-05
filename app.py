@@ -80,7 +80,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Banner de Título Atualizado conforme solicitado
+# Banner de Título
 st.markdown("""
     <div class="marathon-header">
         <h1>🏆 AVALIADOR DE SIMULADOS</h1>
@@ -92,12 +92,10 @@ st.markdown("""
 with st.sidebar:
     st.subheader("⚙️ Configurações de Acesso")
     
-    # 1. Verifica se a chave existe e está preenchida no st.secrets
     if "ANTHROPIC_API_KEY" in st.secrets and st.secrets["ANTHROPIC_API_KEY"]:
         api_key = st.secrets["ANTHROPIC_API_KEY"]
         st.success("✅ API Key carregada do sistema!")
     else:
-        # 2. Caso contrário, exibe o campo para digitação manual na interface
         st.warning("⚠️ Chave não encontrada nos Secrets.")
         api_key = st.text_input("Digite sua Anthropic API Key manualmente:", type="password")
         
@@ -105,8 +103,6 @@ with st.sidebar:
     
     st.write("---")
     
-    # Botão de alternância de visão (Geral vs Dashboard)
-    # Só faz sentido exibir se já houver dados processados na memória
     if st.session_state.dados_calculados is not None:
         texto_botao = "📊 Voltar para o Dashboard" if st.session_state.ver_geral else "👁️ Ver Geral"
         if st.button(texto_botao, use_container_width=True):
@@ -115,23 +111,25 @@ with st.sidebar:
 
 # --- LÓGICA PRINCIPAL DO APP ---
 if uploaded_file and api_key:
-    # Ler a planilha do Excel (Google Planilhas exportado)
+    # Lendo o arquivo Excel limpando linhas completamente vazias iniciais se houverem
     df = pd.read_excel(uploaded_file)
     
-    # Só exibe a prévia da planilha original se ainda não tiver processado os dados para manter o visual limpo
+    # Se a primeira linha contiver títulos gerais mesclados ou strings soltas sem as questões, 
+    # garantimos uma exibição limpa convertendo tudo para string de forma estruturada.
     if st.session_state.dados_calculados is None:
-        st.write("📋 **Prévia dos dados carregados (Gabarito na linha 2 do Excel):**", df.head(4))
+        st.write("📋 **Prévia da Planilha (Verifique as linhas iniciais):**")
+        st.dataframe(df.head(10), use_container_width=True)
     
-    # Botão para disparar o processo da API
     if st.button("🔥 Iniciar Correção Inteligente"):
-        with st.spinner("A IA do Claude está avaliando as respostas com base nos critérios anatômicos detalhados..."):
+        with st.spinner("O Claude está analisando os dados da planilha e aplicando os critérios anatômicos..."):
             try:
+                # Convertemos todo o DataFrame para string eliminando omissões visuais
                 tabela_texto = df.to_string()
                 
-                prompt_sistema = """Você é um avaliador especialista em anatomy médica. Sua tarefa é corrigir as respostas dissertativas dos alunos comparando-as com o gabarito oficial. Você deve retornar estritamente um objeto JSON válido, sem qualquer texto explicativo antes ou depois."""
+                prompt_sistema = """Você é um avaliador especialista em anatomia médica. Sua tarefa é analisar minuciosamente o texto da planilha enviada, identificar a linha que contém o GABARITO oficial (com as respostas padrão do professor) e corrigir todas as linhas subsequentes correspondentes às respostas enviadas pelos alunos. Você deve retornar estritamente um objeto JSON válido, sem qualquer texto explicativo."""
                 
                 prompt_usuario = f"""
-                Com base na linha 2 da tabela (GABARITO) avalie as respostas (linha 3 em diante) e atribua notas de 0 a 1.0 para cada uma das 16 questões.
+                Analise a tabela fornecida abaixo. Identifique a linha correspondente ao GABARITO oficial (geralmente marcada explicitamente ou contendo as respostas ideais) e utilize-a para avaliar todas as respostas dos alunos posicionadas nas linhas inferiores. Atribua notas de 0 a 1.0 para cada uma das 16 questões de cada aluno.
 
                 CRITÉRIOS RIGOROSOS DE CORREÇÃO:
                 1. Drenagem e Vascularização: Trocar abreviações de artéria para veia (ex: escrever "A." em vez de "V." ou vice-versa) zera a questão inteira. Omitir qualquer parte da cadeia de vascularização (ex: escrever "A. aorta > A. hepática comum", omitindo o "Tronco celíaco" que consta no gabarito) zera a questão inteira.
@@ -148,11 +146,12 @@ if uploaded_file and api_key:
                    - "Processo papilar" pode ser aceito como "Processo caudado".
                 3. Subdivisões Estruturais: Se o gabarito exigir "Parte pilórica", aceite se o aluno detalhar e dividir em "(Antro e canal) pilóricos" ou "Antro pilórico e canal pilórico".
 
+                Mapeie TODOS os alunos presentes na tabela (não limite a leitura).
+                
                 Dados extraídos da planilha:
                 {tabela_texto}
                 
-                RETORNO OBRIGATÓRIO:
-                Gere única e estritamente o JSON abaixo preenchido para todos os alunos encontrados a partir da linha 3:
+                RETORNO OBRIGATÓRIO (Gere única e estritamente o JSON estruturado abaixo contendo a avaliação de cada um dos alunos):
                 {{
                   "correcoes": [
                     {{
@@ -177,7 +176,7 @@ if uploaded_file and api_key:
                 resultado_json = json.loads(response.content[0].text)
                 correcoes = resultado_json["correcoes"]
                 
-                # --- ESTRUTURAÇÃO DOS DADOS NO LOCAL ---
+                # --- PROCESSAMENTO DOS DADOS RETORNADOS ---
                 dados_alunos = []
                 frequencia_questoes = {f"Q{i}": [] for i in range(1, 17)}
                 
@@ -200,7 +199,6 @@ if uploaded_file and api_key:
                 
                 questoes_ordenadas = sorted(indices_acerto.items(), key=lambda x: x[1], reverse=True)
                 
-                # Guardar tudo no session_state para não perder ao clicar em botões
                 st.session_state.dados_calculados = {
                     "df_resultados": df_resultados,
                     "media_geral": media_geral,
@@ -208,25 +206,25 @@ if uploaded_file and api_key:
                     "top_3_dificeis": questoes_ordenadas[-3:][::-1],
                     "df_ranking": df_resultados.sort_values(by=["Nota", "Nome"], ascending=[False, True]).reset_index(drop=True)
                 }
-                st.session_state.ver_geral = False  # Reseta para o dashboard por padrão ao re-corrigir
+                st.session_state.ver_geral = False
                 st.rerun()
 
             except Exception as e:
-                st.error(f"Erro ao processar as notas ou se comunicar com a API do Claude: {e}")
+                st.error(f"Erro no processamento ou mapeamento dos dados da API: {e}")
 
-    # --- RENDERIZAÇÃO CONDICIONAL DA INTERFACE ---
+    # --- RENDERIZAÇÃO DA INTERFACE ---
     if st.session_state.dados_calculados is not None:
         dados = st.session_state.dados_calculados
         
-        # VISÃO 1: VER GERAL (TABELA COMPLETA)
+        # VISÃO 1: VER GERAL (Ajustada para exibir todas as linhas dinamicamente)
         if st.session_state.ver_geral:
             st.markdown('<div class="custom-card"><h3>📋 Tabela Geral de Notas e Pontuações</h3></div>', unsafe_allow_html=True)
             
-            # Formatação simples para exibir na tabela de forma limpa, ordenada alfabeticamente por padrão
             df_geral_exibicao = dados["df_resultados"].sort_values(by="Nome").reset_index(drop=True)
             df_geral_exibicao["Nota"] = df_geral_exibicao["Nota"].map(lambda x: f"{x:.2f} / 16.0")
             
-            st.dataframe(df_geral_exibicao, use_container_width=True, height=500)
+            # Mudança crucial: height=None faz a tabela expandir e mostrar todas as linhas na tela de uma vez só
+            st.dataframe(df_geral_exibicao, use_container_width=True, height=None)
             
         # VISÃO 2: DASHBOARD TRADICIONAL AVALIADO
         else:
@@ -274,4 +272,4 @@ if uploaded_file and api_key:
                 for q, taxa in dados["top_3_dificeis"]:
                     st.markdown(f"<span class='badge-danger'>{q} ({taxa*100:.1f}% de aproveitamento)</span>", unsafe_allow_html=True)
 else:
-    st.info("💡 Pronto para começar! Certifique-se de que sua API Key está configurada nos Secrets do Streamlit ou na barra lateral e faça o upload da sua planilha .xlsx.")
+    st.info("💡 Pronto para começar! Faça o upload da planilha contendo o título, gabarito e as respostas para iniciar.")
